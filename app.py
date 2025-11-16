@@ -82,12 +82,25 @@ async def startup_event():
     logger.info("Initializing DocChat RAG system...")
 
     try:
-        # Check for API key
-        if not os.getenv("OPENAI_API_KEY"):
-            logger.warning("OPENAI_API_KEY not found. Using HuggingFace embeddings.")
+        # Get provider from environment
+        llm_provider = os.getenv("LLM_PROVIDER", "openai").lower()
+
+        # Determine embedding model
+        if llm_provider == "ollama":
             embedding_model = "huggingface"
-        else:
+        elif os.getenv("OPENAI_API_KEY"):
             embedding_model = "openai"
+        else:
+            embedding_model = "huggingface"
+            logger.warning("No OPENAI_API_KEY found. Using HuggingFace embeddings.")
+
+        # Determine LLM model
+        if llm_provider == "ollama":
+            model_name = os.getenv("OLLAMA_MODEL", "llama2")
+        else:
+            model_name = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+
+        logger.info(f"Provider: {llm_provider}, Model: {model_name}, Embeddings: {embedding_model}")
 
         # Initialize vector store
         vector_store = VectorStore(
@@ -98,8 +111,9 @@ async def startup_event():
         # Initialize RAG engine
         rag_engine = RAGEngine(
             vector_store=vector_store,
-            model_name="gpt-3.5-turbo",
-            temperature=0.0
+            model_name=model_name,
+            temperature=0.0,
+            llm_provider=llm_provider
         )
 
         logger.info("✓ DocChat RAG system ready!")
@@ -368,5 +382,4 @@ async def system_info():
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

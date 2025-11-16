@@ -4,7 +4,7 @@ Core Retrieval Augmented Generation implementation
 """
 
 from typing import List, Dict, Optional
-from langchain.llms import OpenAI
+from langchain.llms import OpenAI, Ollama
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -19,11 +19,12 @@ class RAGEngine:
     """Retrieval Augmented Generation Engine"""
 
     def __init__(
-            self,
-            vector_store: VectorStore,
-            model_name: str = "gpt-3.5-turbo",
-            temperature: float = 0.0,
-            max_tokens: int = 500
+        self,
+        vector_store: VectorStore,
+        model_name: str = "gpt-3.5-turbo",
+        temperature: float = 0.0,
+        max_tokens: int = 500,
+        llm_provider: str = "openai"
     ):
         """
         Initialize RAG engine
@@ -33,14 +34,26 @@ class RAGEngine:
             model_name: LLM model to use
             temperature: Model temperature (0 = deterministic)
             max_tokens: Maximum tokens in response
+            llm_provider: "openai" or "ollama"
         """
         self.vector_store = vector_store
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.llm_provider = llm_provider.lower()
 
-        # Initialize LLM
-        if "gpt" in model_name.lower():
+        # Initialize LLM based on provider
+        if self.llm_provider == "ollama":
+            # Use Ollama (local LLMs)
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            self.llm = Ollama(
+                model=model_name,
+                temperature=temperature,
+                base_url=base_url
+            )
+            print(f"✓ Using Ollama model: {model_name} at {base_url}")
+        elif "gpt" in model_name.lower() or self.llm_provider == "openai":
+            # Use OpenAI
             self.llm = ChatOpenAI(
                 model_name=model_name,
                 temperature=temperature,
@@ -48,7 +61,7 @@ class RAGEngine:
             )
             print(f"✓ Using OpenAI model: {model_name}")
         else:
-            # For other models (Ollama, etc.)
+            # Fallback
             self.llm = OpenAI(
                 model_name=model_name,
                 temperature=temperature,
@@ -90,11 +103,11 @@ Answer: Let me help you with that."""
         )
 
     def query(
-            self,
-            question: str,
-            k: int = 4,
-            include_sources: bool = True,
-            use_history: bool = False
+        self,
+        question: str,
+        k: int = 4,
+        include_sources: bool = True,
+        use_history: bool = False
     ) -> Dict:
         """
         Query the RAG system
@@ -256,9 +269,9 @@ if __name__ == "__main__":
         print("  export OPENAI_API_KEY='your-key-here'")
         sys.exit(1)
 
-    print("=" * 60)
+    print("="*60)
     print("DocChat RAG System - Interactive Mode")
-    print("=" * 60)
+    print("="*60)
 
     # Initialize vector store
     print("\nInitializing vector store...")
@@ -300,7 +313,7 @@ if __name__ == "__main__":
     print("  - 'clear' - clear history")
     print("  - 'info' - show system info")
     print("  - 'quit' - exit")
-    print("=" * 60)
+    print("="*60)
 
     # Interactive loop
     while True:
@@ -318,7 +331,7 @@ if __name__ == "__main__":
                 history = rag.get_history()
                 if history:
                     print("\nConversation History:")
-                    print("-" * 60)
+                    print("-"*60)
                     for i, (q, a) in enumerate(history, 1):
                         print(f"\n{i}. Q: {q}")
                         print(f"   A: {a[:200]}...")
@@ -333,7 +346,7 @@ if __name__ == "__main__":
             if question.lower() == 'info':
                 info = rag.get_system_info()
                 print("\nSystem Information:")
-                print("-" * 60)
+                print("-"*60)
                 for key, value in info.items():
                     print(f"{key}: {value}")
                 continue
@@ -343,16 +356,16 @@ if __name__ == "__main__":
             result = rag.query(question, k=3, include_sources=True)
 
             # Display answer
-            print("\n" + "=" * 60)
+            print("\n" + "="*60)
             print("ANSWER:")
-            print("=" * 60)
+            print("="*60)
             print(result["answer"])
 
             # Display sources
             if "sources" in result and result["sources"]:
-                print("\n" + "=" * 60)
+                print("\n" + "="*60)
                 print("SOURCES:")
-                print("=" * 60)
+                print("="*60)
                 for i, source in enumerate(result["sources"], 1):
                     print(f"\n{i}. Relevance: {source['relevance_score']:.4f}")
                     print(f"   Source: {source['metadata'].get('source', 'Unknown')}")
@@ -360,7 +373,7 @@ if __name__ == "__main__":
                         print(f"   Page: {source['metadata']['page']}")
                     print(f"   Content: {source['content'][:150]}...")
 
-            print("=" * 60)
+            print("="*60)
 
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
