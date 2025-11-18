@@ -45,9 +45,6 @@ upload_dir.mkdir(parents=True, exist_ok=True)
 # Request/Response Models
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
-    k: int = Field(4, ge=1, le=10, description="Number of documents to retrieve")
-    include_sources: bool = Field(True, description="Include source documents")
-    use_history: bool = Field(False, description="Use conversation history")
 
 
 class QueryResponse(BaseModel):
@@ -83,11 +80,11 @@ async def startup_event():
 
     try:
         # Get provider from environment
-        llm_provider = os.getenv("LLM_PROVIDER", "openai").lower()
+        llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
 
         # Determine embedding model
         if llm_provider == "ollama":
-            embedding_model = "huggingface"
+            embedding_model = "ollama"
         elif os.getenv("OPENAI_API_KEY"):
             embedding_model = "openai"
         else:
@@ -174,18 +171,15 @@ async def query_documents(request: QueryRequest):
 
         # Query the RAG system
         result = rag_engine.query(
-            question=request.question,
-            k=request.k,
-            include_sources=request.include_sources,
-            use_history=request.use_history
+            question=request.question
         )
 
         # Check for errors
         if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
+            raise HTTPException(status_code=500, detail=result["response"])
 
         response = QueryResponse(
-            answer=result["answer"],
+            answer=result["response"],
             question=result["question"],
             sources=result.get("sources"),
             num_sources=result.get("num_sources"),

@@ -19,10 +19,10 @@ print("Initializing DocChat RAG system...")
 
 # Check for API key
 if not os.getenv("OPENAI_API_KEY"):
-    print("⚠ Warning: OPENAI_API_KEY not found. Using HuggingFace embeddings.")
-    embedding_model = "huggingface"
+    print("⚠ Warning: OPENAI_API_KEY not found. Using Ollama embeddings.")
+    embedding_model = "ollama"
 else:
-    embedding_model = "openai"
+    embedding_model = "ollama"
 
 # Initialize
 vector_store = VectorStore(
@@ -32,7 +32,7 @@ vector_store = VectorStore(
 
 rag = RAGEngine(
     vector_store=vector_store,
-    model_name="gpt-3.5-turbo",
+    model_name="llama2",
     temperature=0.0
 )
 
@@ -89,13 +89,10 @@ def query_documents(question, num_sources, use_history):
 
         # Query
         result = rag.query(
-            question=question.strip(),
-            k=num_sources,
-            include_sources=True,
-            use_history=use_history
+            question=question.strip()
         )
 
-        answer = result["answer"]
+        answer = result["response"]
 
         # Format sources
         sources_text = ""

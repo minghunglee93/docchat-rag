@@ -3,12 +3,15 @@ Vector Store Module
 Handles ChromaDB vector database operations
 """
 
-from typing import List, Dict, Optional
-from langchain.vectorstores import Chroma
-from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
-from langchain.docstore.document import Document
 import chromadb
+import os
+from langchain_core.documents import Document
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from pathlib import Path
+from typing import List, Dict, Optional
 
 
 class VectorStore:
@@ -18,7 +21,7 @@ class VectorStore:
             self,
             collection_name: str = "documents",
             persist_directory: str = "./vector_db",
-            embedding_model: str = "openai"
+            embedding_model: str = "ollama"
     ):
         """
         Initialize vector store
@@ -36,6 +39,12 @@ class VectorStore:
         if embedding_model == "openai":
             self.embeddings = OpenAIEmbeddings()
             print("Using OpenAI embeddings (text-embedding-ada-002)")
+        elif embedding_model == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            self.embeddings = OllamaEmbeddings(
+                model="llama2",
+                base_url=base_url
+            )
         else:
             # Use free local embeddings
             self.embeddings = HuggingFaceEmbeddings(
@@ -91,9 +100,6 @@ class VectorStore:
 
             # Add documents and get IDs
             ids = self.vectorstore.add_documents(documents)
-
-            # Persist changes
-            self.vectorstore.persist()
 
             print(f"✓ Added {len(documents)} documents")
 

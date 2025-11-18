@@ -6,8 +6,8 @@ Handles loading, parsing, and chunking documents
 from typing import List, Dict, Optional
 from pathlib import Path
 import re
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 import pypdf
 import docx
 import requests

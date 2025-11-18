@@ -70,11 +70,6 @@ rag.add_documents(["doc1.pdf", "doc2.pdf"])
 # Query
 result = rag.query("What are the key points?")
 print(result["answer"])
-
-# With sources
-result = rag.query("Explain...", k=5, include_sources=True)
-for source in result["sources"]:
-    print(f"Source: {source['metadata']['source']}")
 ```
 
 ## 🧪 Testing
@@ -122,15 +117,13 @@ python ui.py
 # Use different model
 rag = RAGEngine(
     vector_store,
-    model_name="gpt-4",  # or "gpt-3.5-turbo"
+    model_name="gpt-4",  # or "gpt-3.5-turbo" | "llama2"
     temperature=0.0
 )
 
 # Adjust retrieval
 result = rag.query(
-    question="...",
-    k=10,  # More sources
-    use_history=True  # Use conversation context
+    question="..."
 )
 ```
 
@@ -138,7 +131,7 @@ result = rag.query(
 ```python
 # Use free local embeddings
 vector_store = VectorStore(
-    embedding_model="huggingface"  # No API key needed
+    embedding_model="ollama"  # No API key needed
 )
 ```
 
@@ -167,7 +160,7 @@ python rag_engine.py document.pdf
 **Slow queries?**
 ```python
 # Use fewer sources
-result = rag.query("...", k=2)
+result = rag.query("...")
 
 # Or use gpt-3.5-turbo (faster)
 ```
@@ -176,8 +169,8 @@ result = rag.query("...", k=2)
 
 1. **Chunk size**: 1000 tokens (default) works well
 2. **Retrieval**: k=4 balances speed/quality
-3. **Model**: gpt-3.5-turbo = fast, gpt-4 = better quality
-4. **Embeddings**: OpenAI = better, HuggingFace = free
+3. **Model**: gpt-3.5-turbo = fast, gpt-4 = better quality, llama2 = free
+4. **Embeddings**: OpenAI = better, HuggingFace = free, Ollama = free
 
 ## 🎯 Common Commands
 

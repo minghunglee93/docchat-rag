@@ -3,17 +3,30 @@ RAG Engine Module
 Core Retrieval Augmented Generation implementation
 """
 
-from typing import List, Dict, Optional
-from langchain.llms import OpenAI, Ollama
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.chains.question_answering import load_qa_chain
 import os
+from operator import add
+
+from langchain.agents import create_agent
+from langchain.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph, END
+from typing import Annotated, List, Dict, Optional, TypedDict
 
 from document_processor import DocumentProcessor
 from vector_store import VectorStore
 
+
+# ===== State Definition =====
+class AgentState(TypedDict):
+    """State for the RAG agent graph."""
+    query: str
+    chat_history: Annotated[List[BaseMessage], add]
+    context: List[str]
+    response: str
 
 class RAGEngine:
     """Retrieval Augmented Generation Engine"""
@@ -21,10 +34,10 @@ class RAGEngine:
     def __init__(
         self,
         vector_store: VectorStore,
-        model_name: str = "gpt-3.5-turbo",
+        model_name: str = "llama2",
         temperature: float = 0.0,
         max_tokens: int = 500,
-        llm_provider: str = "openai"
+        llm_provider: str = "ollama"
     ):
         """
         Initialize RAG engine
@@ -46,7 +59,7 @@ class RAGEngine:
         if self.llm_provider == "ollama":
             # Use Ollama (local LLMs)
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-            self.llm = Ollama(
+            self.llm = ChatOllama(
                 model=model_name,
                 temperature=temperature,
                 base_url=base_url
@@ -62,143 +75,113 @@ class RAGEngine:
             print(f"✓ Using OpenAI model: {model_name}")
         else:
             # Fallback
-            self.llm = OpenAI(
-                model_name=model_name,
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            self.llm = ChatOllama(
+                model=model_name,
                 temperature=temperature,
-                max_tokens=max_tokens
+                base_url=base_url
             )
             print(f"✓ Using model: {model_name}")
 
-        # Create QA chain
-        self._setup_qa_chain()
+        # Create Graph
+        self.graph = self._build_graph()
 
-        # Conversation history
-        self.conversation_history = []
+    def _build_graph(self):
+        """Build LangGraph workflow"""
 
-    def _setup_qa_chain(self):
-        """Setup question-answering chain"""
+        workflow = StateGraph(AgentState)
 
-        # Create custom prompt template
-        template = """Use the following pieces of context to answer the question at the end. 
-If you don't know the answer, just say that you don't know, don't try to make up an answer.
-Always cite the source of your information when possible.
+        # Add nodes
+        workflow.add_node("retrieve", self.retrieve_node)
+        workflow.add_node("generate", self.generate_node)
 
-Context:
-{context}
+        # Define edges
+        workflow.set_entry_point("retrieve")
+        workflow.add_edge("retrieve", "generate")
+        workflow.add_edge("generate", END)
 
-Question: {question}
+        # Compile with memory
+        memory = MemorySaver()
+        return workflow.compile(checkpointer=memory)
 
-Answer: Let me help you with that."""
+    def retrieve_node(self, state: AgentState) -> AgentState:
+        """Retrieve relevant documents from the vector store."""
+        query = state["query"]
 
-        prompt = PromptTemplate(
-            template=template,
-            input_variables=["context", "question"]
-        )
-
-        # Create chain
-        self.qa_chain = load_qa_chain(
-            llm=self.llm,
-            chain_type="stuff",
-            prompt=prompt
-        )
-
-    def query(
-        self,
-        question: str,
-        k: int = 4,
-        include_sources: bool = True,
-        use_history: bool = False
-    ) -> Dict:
-        """
-        Query the RAG system
-
-        Args:
-            question: User question
-            k: Number of documents to retrieve
-            include_sources: Include source documents in response
-            use_history: Use conversation history for context
-
-        Returns:
-            Dictionary with answer and sources
-        """
-        try:
-            # Add history to question if requested
-            if use_history and self.conversation_history:
-                context_questions = "\n".join([
-                    f"Previous Q: {q}\nPrevious A: {a}"
-                    for q, a in self.conversation_history[-3:]  # Last 3 exchanges
-                ])
-                enhanced_question = f"{context_questions}\n\nCurrent Question: {question}"
-            else:
-                enhanced_question = question
-
+        if self.vector_store.get_document_count() == 0:
+            # No documents in the store
+            state["context"] = []
+        else:
             # Retrieve relevant documents
-            docs_with_scores = self.vector_store.similarity_search_with_score(
-                enhanced_question,
-                k=k
+            docs = self.vector_store.similarity_search(query, k=3)
+            state["context"] = [doc.page_content for doc in docs]
+
+        return state
+
+    def generate_node(self, state: AgentState) -> AgentState:
+        """Generate a response using the LLM."""
+        query = state["query"]
+        context = state.get("context", [])
+        chat_history = state.get("chat_history", [])
+
+        # Create prompt
+        if context:
+            system_message = (
+                "You are a helpful AI assistant. Use the following context to answer the user's question. "
+                "If the context doesn't contain relevant information, say so and provide a general answer.\n\n"
+                f"Context:\n{chr(10).join(context)}"
+            )
+        else:
+            system_message = (
+                "You are a helpful AI assistant. Answer the user's question based on your knowledge."
             )
 
-            if not docs_with_scores:
-                return {
-                    "answer": "I couldn't find any relevant information in the documents to answer your question.",
-                    "sources": [],
-                    "question": question
-                }
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_message),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{query}")
+        ])
 
-            # Extract documents and scores
-            docs = [doc for doc, score in docs_with_scores]
-            scores = [score for doc, score in docs_with_scores]
+        # Generate response
+        chain = prompt | self.llm
+        response = chain.invoke({
+            "query": query,
+            "chat_history": chat_history[-6:]  # Keep last 3 exchanges
+        })
 
-            # Get answer from LLM
-            result = self.qa_chain({
-                "input_documents": docs,
-                "question": question
-            })
+        state["response"] = response.content
+        state["chat_history"] = [
+            HumanMessage(content=query),
+            AIMessage(content=response.content)
+        ]
 
-            answer = result["output_text"]
+        return state
 
-            # Store in conversation history
-            self.conversation_history.append((question, answer))
+    def query(self, question: str, thread_id: str = "default") -> dict:
+        """Query the RAG agent."""
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            result = self.graph.invoke(
+                {
+                    "query": question,
+                    "chat_history": [],
+                    "context": [],
+                    "response": ""
+                },
+                config=config
+            )
 
-            # Prepare response
-            response = {
-                "answer": answer,
-                "question": question
-            }
-
-            # Add sources if requested
-            if include_sources:
-                sources = []
-                for i, (doc, score) in enumerate(zip(docs, scores)):
-                    source_info = {
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "relevance_score": float(score)
-                    }
-                    sources.append(source_info)
-
-                response["sources"] = sources
-                response["num_sources"] = len(sources)
-
-            return response
-
-        except Exception as e:
-            print(f"Error in query: {e}")
             return {
-                "answer": f"An error occurred: {str(e)}",
-                "sources": [],
-                "question": question,
-                "error": str(e)
+                "response": result["response"],
+                "context": result.get("context", []),
+                "status": "success"
             }
-
-    def clear_history(self):
-        """Clear conversation history"""
-        self.conversation_history = []
-        print("✓ Conversation history cleared")
-
-    def get_history(self) -> List[tuple]:
-        """Get conversation history"""
-        return self.conversation_history
+        except Exception as e:
+            return {
+                "response": f"Error: {str(e)}",
+                "context": [],
+                "status": "error"
+            }
 
     def add_documents(self, file_paths: List[str]) -> Dict:
         """
@@ -277,7 +260,7 @@ if __name__ == "__main__":
     print("\nInitializing vector store...")
     vector_store = VectorStore(
         collection_name="docchat",
-        embedding_model="openai"  # or "huggingface" for free local
+        embedding_model="ollama"  # or "huggingface" for free local
     )
 
     vector_store.print_statistics()
@@ -302,7 +285,6 @@ if __name__ == "__main__":
     print("\nInitializing RAG engine...")
     rag = RAGEngine(
         vector_store=vector_store,
-        model_name="gpt-3.5-turbo",
         temperature=0.0
     )
 
@@ -353,13 +335,13 @@ if __name__ == "__main__":
 
             # Query the system
             print("\nSearching and generating answer...")
-            result = rag.query(question, k=3, include_sources=True)
+            result = rag.query(question)
 
             # Display answer
             print("\n" + "="*60)
             print("ANSWER:")
             print("="*60)
-            print(result["answer"])
+            print(result["response"])
 
             # Display sources
             if "sources" in result and result["sources"]:

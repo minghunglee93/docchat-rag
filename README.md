@@ -64,7 +64,7 @@ response = requests.post(
     "http://localhost:8000/query",
     json={"question": "Summarize the key points"}
 )
-print(response.json()["answer"])
+print(response.json()["response"])
 ```
 
 ## 📡 API Endpoints
@@ -101,6 +101,7 @@ docker-compose down
 
 **Embeddings:**
 - OpenAI (requires API key)
+- Ollama (free, local)
 - HuggingFace (free, local)
 
 Edit in `app.py` or `rag_engine.py`.
@@ -130,7 +131,7 @@ rag.add_documents(["document.pdf"])
 
 # Query
 result = rag.query("What are the main topics?")
-print(result["answer"])
+print(result["response"])
 ```
 
 ## 🧪 Testing
@@ -165,9 +166,9 @@ python rag_engine.py test.pdf
 
 ## 🚧 Troubleshooting
 
-**No OpenAI key?** Use HuggingFace embeddings (free):
+**No OpenAI key?** Use Ollama/HuggingFace embeddings (free):
 ```python
-vector_store = VectorStore(embedding_model="huggingface")
+vector_store = VectorStore(embedding_model="ollama")
 ```
 
 **Slow?** Reduce chunk size or use fewer documents for retrieval (k=2).
