@@ -183,6 +183,16 @@ class RAGEngine:
                 "status": "error"
             }
 
+    def get_history(self, thread_id: str = "default") -> list:
+        """Query the graph for state history."""
+        config = {"configurable": {"thread_id": thread_id}}
+        result = list(self.graph.get_state_history(config=config))
+        return result
+
+    def clear_history(self, thread_id: str = "default"):
+        """Clear state history by rebuilding graph."""
+        self.graph = self._build_graph()
+
     def add_documents(self, file_paths: List[str]) -> Dict:
         """
         Add new documents to the system
@@ -230,8 +240,7 @@ class RAGEngine:
             "model": self.model_name,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
-            "vector_store": stats,
-            "conversation_turns": len(self.conversation_history)
+            "vector_store": stats
         }
 
         return info
@@ -314,9 +323,11 @@ if __name__ == "__main__":
                 if history:
                     print("\nConversation History:")
                     print("-"*60)
-                    for i, (q, a) in enumerate(history, 1):
-                        print(f"\n{i}. Q: {q}")
-                        print(f"   A: {a[:200]}...")
+                    for i, snapshot in enumerate(history, 1):
+                        if(i % 3 == 1 and i > 1):
+                            state = snapshot[0]
+                            print(f"\n{(i - 1)/3} Q: {state['query']}")
+                            print(f"   A: {state['response'][:200]}...")
                 else:
                     print("No conversation history yet.")
                 continue
